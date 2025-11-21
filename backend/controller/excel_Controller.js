@@ -106,12 +106,14 @@ Write ONLY JavaScript code:
 module.exports = { excel_Controller };
 
  */
-
+const path = require('path');
 const xlsx = require("xlsx");
 const groqClient = require("../config/groq");
 
 const excel_Controller = async (req, res) => {
     try {
+
+        // 1) Validation
         if (!req.file) {
             return res.status(400).json({ success: false, message: "No file uploaded" });
         }
@@ -123,11 +125,12 @@ const excel_Controller = async (req, res) => {
         console.log("File:", req.file.filename);
         console.log("Prompt:", req.body.prompt);
 
+        // 2) Read Excel file
         const filePath = req.file.path;
         const workbook = xlsx.readFile(filePath);
         const sheet = workbook.SheetNames[0];
         const excelData = xlsx.utils.sheet_to_json(workbook.Sheets[sheet]);
-
+        // 3) Create Prompt for Groq
         const fullPrompt = `
 You are a JavaScript data transformer.
 Input Excel JSON is below:
@@ -144,7 +147,7 @@ Write ONLY JavaScript code:
 - No comments
 - No backticks
 `;
-
+        // 4) Call Groq API
         const groqResponse = await groqClient.chat.completions.create({
             model: "llama-3.1-8b-instant",
             messages: [
@@ -153,10 +156,12 @@ Write ONLY JavaScript code:
             ],
             temperature: 0
         });
-
+            
+            // AI Output
         const aiCode = groqResponse.choices[0].message.content;
         console.log("\nAI Raw Code:\n", aiCode);
 
+        // Clean code: remove backtics
         const cleanedCode = aiCode
             .replace(/```/g, "")
             .replace(/javascript/g, "")
@@ -164,6 +169,7 @@ Write ONLY JavaScript code:
 
         console.log("\nAI Cleaned Code:\n", cleanedCode);
 
+        // Execution of AI generated code
         let data = excelData;
         var result; // important: declare globally
 
@@ -177,21 +183,36 @@ Write ONLY JavaScript code:
             });
         }
 
-        if (typeof result === "undefined") {
+        if (!result) {
             return res.status(400).json({
                 success: false,
                 message: "AI did not produce a 'result' variable"
             });
         }
 
+        // 7) Create new Excel file
+         const newWorkbook = xlsx.utils.book_new();
+        const newSheet = xlsx.utils.json_to_sheet(result);
+        xlsx.utils.book_append_sheet(newWorkbook, newSheet, "ProcessedData");
+
+        const outputFile = `processed_${Date.now()}.xlsx`;
+        const outputPath = path.join(__dirname, "..", "downloads", outputFile);
+
+        xlsx.writeFile(newWorkbook, outputPath);
+
+        // 8) Send Download URL
+         const downloadUrl = `http://localhost:4545/downloads/${outputFile}`;
+
+
         return res.json({
             success: true,
             message: "Groq transformation successful",
+            downloadUrl,
             rowsBefore: excelData.length,
             rowsAfter: result.length,
-            //preview: result.slice(0, 5),
             fullData: result
         });
+
 
     } catch (error) {
         console.log(`Error in excel_Controller : ${error.message}`);

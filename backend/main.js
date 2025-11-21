@@ -21,6 +21,9 @@ app.use(express.urlencoded({extended: true}));
 app.use(excel_Router);
 
 
+app.use("/downloads", express.static("./downloads"));
+
+
 const PORT = 4545;
 
 mySqlPool.query("SELECT 1").then(() => {
